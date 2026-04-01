@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 96%;
+    --foreground: 0 0% 20%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 20%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 20%;
+    --primary: 158 100% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 20%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 158 100% 38%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 87%;
+    --input: 0 0% 87%;
+    --ring: 158 100% 38%;
+    --radius: 0.25rem;
+    
+    
+    --aptia-primary: #00C389;
+    --aptia-primary-dark: #00A876;
+    --aptia-background: #F5F5F5;
+    --aptia-surface: #FFFFFF;
+    --aptia-footer-bg: #1A3A4A;
+    --aptia-text-primary: #333333;
+    --aptia-text-secondary: #666666;
+    --aptia-text-muted: #999999;
+    --aptia-border: #DDDDDD;
+    --aptia-button-disabled: #B8B8B8;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+  }
+}
+
+
+input:focus {
+  outline: none;
+  border-color: var(--aptia-primary);
+  box-shadow: 0 0 0 1px var(--aptia-primary);
+}
+
+
+input, button, a {
+  transition: all 0.2s ease;
+}
+
+
+html {
+  scroll-behavior: smooth;
+}
+
+
+input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+
+input:focus-visible {
+  outline: none;
+  border-color: #00C389;
+  box-shadow: 0 0 0 1px #00C389;
+}
+
+
+button:not(:disabled):hover {
+  cursor: pointer;
+}
+
+
+a:hover {
+  cursor: pointer;
+}
