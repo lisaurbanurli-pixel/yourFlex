@@ -8,7 +8,7 @@ export function LandingHeader() {
         <Link className="flex items-center gap-3" href="/">
           <Image
             src="/logo.png"
-            alt="Your Flex Aptia365"
+            alt="Your Flex Benefit"
             width={120}
             height={40}
             loading="eager"

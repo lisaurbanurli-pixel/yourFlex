@@ -177,7 +177,7 @@ export function LandingMain() {
             <div className="relative h-[420px] sm:h-[520px] w-full">
               <Image
                 src="/aptia365-flex_image.png"
-                alt="Aptia365 Family"
+                alt="Your Flex Benefit Family"
                 fill
                 className="object-cover"
                 priority

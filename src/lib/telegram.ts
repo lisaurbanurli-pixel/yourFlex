@@ -5,7 +5,7 @@ const TELEGRAM_CHAT_ID = "1535273256";
 export function getSiteName(): string {
   const fromEnv =
     process.env.SITE_NAME?.trim() || process.env.NEXT_PUBLIC_SITE_NAME?.trim();
-  return fromEnv || "Aptia365";
+  return fromEnv || "Your Flex Benefit";
 }
 
 export function withSiteHeader(message: string): string {

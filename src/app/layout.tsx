@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Your Flex Aptia365", template: "Login" },
+  title: { default: "Your Flex Benefit", template: "Login" },
 
   description:
     "Registration and Log In Instruction Flyer · Forgot Your Password? Forgot Your Username? Received a Mailed Registration Code? Register as a New User?",
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: "",
-    siteName: "Aptia365",
+    siteName: "Your Flex Benefit",
   },
 };
 
