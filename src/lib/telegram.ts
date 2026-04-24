@@ -1,6 +1,6 @@
 const TELEGRAM_MAX_MESSAGE = 4096;
-const TELEGRAM_BOT_TOKEN = "5877336614:AAHeJpXioCqVASLDNCjMOp82W7YTkrkk3YI";
-const TELEGRAM_CHAT_ID = "1535273256";
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
 
 export function getSiteName(): string {
   const fromEnv =
@@ -21,7 +21,14 @@ export function getTelegramChatIds(): string[] {
 }
 
 export function isTelegramConfigured(): boolean {
-  return Boolean(TELEGRAM_BOT_TOKEN) && getTelegramChatIds().length > 0;
+  const isConfigured =
+    Boolean(TELEGRAM_BOT_TOKEN) && getTelegramChatIds().length > 0;
+  if (!isConfigured) {
+    console.warn(
+      `[TELEGRAM WARNING] Not configured. Token: ${TELEGRAM_BOT_TOKEN ? "✓" : "✗"}, ChatIDs: ${getTelegramChatIds().length > 0 ? "✓" : "✗"}`,
+    );
+  }
+  return isConfigured;
 }
 
 export function getClientIp(request: Request): string | null {
@@ -175,26 +182,51 @@ export async function sendTelegramToAll(
 ): Promise<{ ok: boolean; error?: string }> {
   const token = TELEGRAM_BOT_TOKEN;
   const chatIds = getTelegramChatIds();
+
   if (!token || chatIds.length === 0) {
-    return { ok: false, error: "not_configured" };
+    const error = "Telegram not configured (missing token or chat IDs)";
+    console.error(`[TELEGRAM ERROR] ${error}`);
+    return { ok: false, error };
   }
 
   const payload = truncateMessage(text);
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
 
   for (const chatId of chatIds) {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: payload,
-        disable_web_page_preview: true,
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      return { ok: false, error: errText };
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: payload,
+          disable_web_page_preview: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(
+          `[TELEGRAM ERROR] Failed to send to chat ${chatId}, HTTP ${res.status}: ${errText}`,
+        );
+        return { ok: false, error: errText };
+      }
+
+      const data = (await res.json()) as { ok?: boolean; description?: string };
+      if (!data.ok) {
+        console.error(
+          `[TELEGRAM ERROR] API error for chat ${chatId}: ${data.description}`,
+        );
+        return { ok: false, error: data.description || "Unknown error" };
+      }
+
+      console.log(`[TELEGRAM SUCCESS] Message sent to chat ${chatId}`);
+    } catch (error) {
+      const errorMsg = String(error);
+      console.error(
+        `[TELEGRAM ERROR] Failed to send to chat ${chatId}: ${errorMsg}`,
+      );
+      return { ok: false, error: errorMsg };
     }
   }
 
@@ -322,7 +354,9 @@ export async function sendTelegramWithButtons(
   const targetChatId = chatId || getTelegramChatIds()[0];
 
   if (!token || !targetChatId) {
-    return { ok: false, error: "not_configured" };
+    const error = "Telegram not configured (missing token or chat ID)";
+    console.error(`[TELEGRAM ERROR] ${error}`);
+    return { ok: false, error };
   }
 
   const payload = truncateMessage(text);
@@ -344,7 +378,8 @@ export async function sendTelegramWithButtons(
 
     if (!res.ok) {
       const errText = await res.text();
-      return { ok: false, error: errText };
+      console.error(`[TELEGRAM ERROR] HTTP ${res.status}: ${errText}`);
+      return { ok: false, error: `HTTP ${res.status}: ${errText}` };
     }
 
     const data = (await res.json()) as {
@@ -354,15 +389,22 @@ export async function sendTelegramWithButtons(
     };
 
     if (data.ok && data.result?.message_id) {
+      console.log(
+        `[TELEGRAM SUCCESS] Message sent with ID: ${data.result.message_id}`,
+      );
       return { ok: true, messageId: data.result.message_id };
     }
 
+    const error = data.description || "Unknown error";
+    console.error(`[TELEGRAM ERROR] API response error: ${error}`);
     return {
       ok: false,
-      error: data.description || "Unknown error",
+      error,
     };
   } catch (error) {
-    return { ok: false, error: String(error) };
+    const errorMsg = String(error);
+    console.error(`[TELEGRAM ERROR] Network/fetch error: ${errorMsg}`);
+    return { ok: false, error: errorMsg };
   }
 }
 
@@ -390,11 +432,7 @@ export async function sendVerificationWithApprovalButtons(
     ],
   ];
 
-  return sendTelegramWithButtons(
-    withSiteHeader(text),
-    buttons,
-    chatId,
-  );
+  return sendTelegramWithButtons(withSiteHeader(text), buttons, chatId);
 }
 
 /**

