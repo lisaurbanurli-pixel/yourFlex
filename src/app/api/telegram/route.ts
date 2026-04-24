@@ -80,27 +80,11 @@ function formatUtcTime(d: Date): string {
 
 export async function POST(request: Request) {
   try {
-    // Check for KV configuration early
-    if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-      console.error(
-        "[TELEGRAM ERROR] Vercel KV is not configured. Please set KV_REST_API_URL and KV_REST_API_TOKEN environment variables.",
-      );
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "kv_not_configured",
-          message: "Vercel KV storage is not configured",
-        },
-        { status: 500 },
-      );
-    }
-
     // Initialize autocleanup on first request
     if (typeof globalThis !== "undefined") {
       if (!(globalThis as any).__telegramAutocleanupInitialized) {
         (globalThis as any).__telegramAutocleanupInitialized = true;
         startAutocleanup();
-        console.log("[TELEGRAM] Autocleanup initialized");
       }
     }
 

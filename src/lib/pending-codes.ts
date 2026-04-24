@@ -34,17 +34,6 @@ const CODE_EXPIRY = 15 * 60 * 1000;
 const PENDING_CODE_KEY = "pending:";
 const CODE_TO_ID_KEY = "code2id:";
 
-// Check if KV is configured
-const KV_CONFIGURED = Boolean(
-  process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN,
-);
-
-if (!KV_CONFIGURED) {
-  console.warn(
-    "[PENDING CODES] KV is not configured. Set KV_REST_API_URL and KV_REST_API_TOKEN environment variables.",
-  );
-}
-
 /**
  * Generate a unique ID for a code
  */
@@ -84,25 +73,20 @@ export async function storePendingCode(
   // Store with expiry (convert ms to seconds for KV TTL)
   const ttlSeconds = Math.ceil((pendingCode.expiresAt - now) / 1000);
 
-  try {
-    await kv.setex(
-      `${PENDING_CODE_KEY}${id}`,
-      ttlSeconds,
-      JSON.stringify(pendingCode),
-    );
+  await kv.setex(
+    `${PENDING_CODE_KEY}${id}`,
+    ttlSeconds,
+    JSON.stringify(pendingCode),
+  );
 
-    // Also store mapping from code value to ID (with same TTL)
-    await kv.setex(`${CODE_TO_ID_KEY}${code}`, ttlSeconds, id);
+  // Also store mapping from code value to ID (with same TTL)
+  await kv.setex(`${CODE_TO_ID_KEY}${code}`, ttlSeconds, id);
 
-    // Add to set of all pending code IDs
-    await kv.sadd("pending:ids", id);
+  // Add to set of all pending code IDs
+  await kv.sadd("pending:ids", id);
 
-    // Extend TTL of the set
-    await kv.expire("pending:ids", ttlSeconds);
-  } catch (error) {
-    console.error("[PENDING CODES] Error storing code:", error);
-    throw new Error(`Failed to store pending code: ${String(error)}`);
-  }
+  // Extend TTL of the set
+  await kv.expire("pending:ids", ttlSeconds);
 
   return pendingCode;
 }
@@ -113,23 +97,18 @@ export async function storePendingCode(
 export async function getPendingCode(
   id: string,
 ): Promise<PendingCode | undefined> {
-  try {
-    const data = await kv.get(`${PENDING_CODE_KEY}${id}`);
-    if (!data) return undefined;
+  const data = await kv.get(`${PENDING_CODE_KEY}${id}`);
+  if (!data) return undefined;
 
-    const code = JSON.parse(data as string) as PendingCode;
+  const code = JSON.parse(data as string) as PendingCode;
 
-    // Check if expired
-    if (code.expiresAt < Date.now()) {
-      code.status = "expired";
-      return code;
-    }
-
+  // Check if expired
+  if (code.expiresAt < Date.now()) {
+    code.status = "expired";
     return code;
-  } catch (error) {
-    console.error("[PENDING CODES] Error getting code:", error);
-    throw new Error(`Failed to get pending code: ${String(error)}`);
   }
+
+  return code;
 }
 
 /**
@@ -138,15 +117,10 @@ export async function getPendingCode(
 export async function getPendingCodeByValue(
   code: string,
 ): Promise<PendingCode | undefined> {
-  try {
-    const id = await kv.get(`${CODE_TO_ID_KEY}${code}`);
-    if (!id) return undefined;
+  const id = await kv.get(`${CODE_TO_ID_KEY}${code}`);
+  if (!id) return undefined;
 
-    return getPendingCode(id as string);
-  } catch (error) {
-    console.error("[PENDING CODES] Error getting code by value:", error);
-    throw new Error(`Failed to get pending code by value: ${String(error)}`);
-  }
+  return getPendingCode(id as string);
 }
 
 /**
@@ -156,28 +130,23 @@ export async function updatePendingCode(
   id: string,
   update: Partial<PendingCode>,
 ): Promise<PendingCode | undefined> {
-  try {
-    const code = await getPendingCode(id);
-    if (!code) return undefined;
+  const code = await getPendingCode(id);
+  if (!code) return undefined;
 
-    const updated = { ...code, ...update };
+  const updated = { ...code, ...update };
 
-    // Calculate remaining TTL
-    const now = Date.now();
-    const remainingMs = Math.max(updated.expiresAt - now, 1000); // At least 1 second
-    const ttlSeconds = Math.ceil(remainingMs / 1000);
+  // Calculate remaining TTL
+  const now = Date.now();
+  const remainingMs = Math.max(updated.expiresAt - now, 1000); // At least 1 second
+  const ttlSeconds = Math.ceil(remainingMs / 1000);
 
-    await kv.setex(
-      `${PENDING_CODE_KEY}${id}`,
-      ttlSeconds,
-      JSON.stringify(updated),
-    );
+  await kv.setex(
+    `${PENDING_CODE_KEY}${id}`,
+    ttlSeconds,
+    JSON.stringify(updated),
+  );
 
-    return updated;
-  } catch (error) {
-    console.error("[PENDING CODES] Error updating code:", error);
-    throw new Error(`Failed to update pending code: ${String(error)}`);
-  }
+  return updated;
 }
 
 /**
