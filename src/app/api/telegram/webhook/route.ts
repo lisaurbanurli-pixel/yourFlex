@@ -78,8 +78,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // Get the pending code
-    const pendingCode = await getPendingCode(codeId);
+    let pendingCode;
+    try {
+      // Get the pending code from KV
+      pendingCode = await getPendingCode(codeId);
+    } catch (kvError) {
+      console.error(
+        `[Telegram Webhook] KV error retrieving ${codeId}:`,
+        kvError,
+      );
+      await answerCallbackQuery(
+        callbackQuery.id,
+        "❌ Database error - try again later",
+        true,
+      );
+      return NextResponse.json({ ok: true });
+    }
+
     if (!pendingCode) {
       await answerCallbackQuery(
         callbackQuery.id,
@@ -104,16 +119,29 @@ export async function POST(request: Request) {
     let statusEmoji = "";
     let statusText = "";
 
-    if (action === "approve") {
-      updated = await approvePendingCode(codeId, username);
-      statusEmoji = "✅";
-      statusText = "APPROVED";
-    } else if (action === "decline") {
-      updated = await declinePendingCode(codeId, username);
-      statusEmoji = "❌";
-      statusText = "DECLINED";
-    } else {
-      await answerCallbackQuery(callbackQuery.id, "❌ Unknown action", true);
+    try {
+      if (action === "approve") {
+        updated = await approvePendingCode(codeId, username);
+        statusEmoji = "✅";
+        statusText = "APPROVED";
+      } else if (action === "decline") {
+        updated = await declinePendingCode(codeId, username);
+        statusEmoji = "❌";
+        statusText = "DECLINED";
+      } else {
+        await answerCallbackQuery(callbackQuery.id, "❌ Unknown action", true);
+        return NextResponse.json({ ok: true });
+      }
+    } catch (updateError) {
+      console.error(
+        `[Telegram Webhook] Error updating code ${codeId}:`,
+        updateError,
+      );
+      await answerCallbackQuery(
+        callbackQuery.id,
+        "❌ Failed to update - try again",
+        true,
+      );
       return NextResponse.json({ ok: true });
     }
 
@@ -147,7 +175,15 @@ ${statusEmoji} Status: ${statusText}
       ],
     ];
 
-    await editTelegramMessage(messageId, newText, buttons, chatId);
+    try {
+      await editTelegramMessage(messageId, newText, buttons, chatId);
+    } catch (editError) {
+      console.error(
+        `[Telegram Webhook] Error editing message ${messageId}:`,
+        editError,
+      );
+      // Continue anyway - the status is updated in DB
+    }
 
     // Send notification callback response
     await answerCallbackQuery(
@@ -162,9 +198,10 @@ ${statusEmoji} Status: ${statusText}
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("[Telegram Webhook] Error:", error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("[Telegram Webhook] Unhandled error:", errorMsg);
     return NextResponse.json(
-      { ok: false, error: String(error) },
+      { ok: false, error: "internal_error" },
       { status: 500 },
     );
   }

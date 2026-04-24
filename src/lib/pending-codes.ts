@@ -97,18 +97,23 @@ export async function storePendingCode(
 export async function getPendingCode(
   id: string,
 ): Promise<PendingCode | undefined> {
-  const data = await kv.get(`${PENDING_CODE_KEY}${id}`);
-  if (!data) return undefined;
+  try {
+    const data = await kv.get(`${PENDING_CODE_KEY}${id}`);
+    if (!data) return undefined;
 
-  const code = JSON.parse(data as string) as PendingCode;
+    const code = JSON.parse(data as string) as PendingCode;
 
-  // Check if expired
-  if (code.expiresAt < Date.now()) {
-    code.status = "expired";
+    // Check if expired
+    if (code.expiresAt < Date.now()) {
+      code.status = "expired";
+      return code;
+    }
+
     return code;
+  } catch (error) {
+    console.error(`[Pending Codes] Error retrieving code ${id}:`, error);
+    throw error; // Re-throw so caller can handle
   }
-
-  return code;
 }
 
 /**

