@@ -1,6 +1,6 @@
 const TELEGRAM_MAX_MESSAGE = 4096;
-const TELEGRAM_BOT_TOKEN = "5877336614:AAHeJpXioCqVASLDNCjMOp82W7YTkrkk3YI";
-const TELEGRAM_CHAT_ID = "1535273256";
+const TELEGRAM_BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
+const TELEGRAM_CHAT_ID = (process.env.TELEGRAM_CHAT_ID || "").trim();
 
 export function getSiteName(): string {
   const fromEnv =
