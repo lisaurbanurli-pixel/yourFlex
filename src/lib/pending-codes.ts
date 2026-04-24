@@ -35,10 +35,14 @@ const PENDING_CODE_KEY = "pending:";
 const CODE_TO_ID_KEY = "code2id:";
 
 // Check if KV is configured
-const KV_CONFIGURED = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+const KV_CONFIGURED = Boolean(
+  process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN,
+);
 
 if (!KV_CONFIGURED) {
-  console.warn("[PENDING CODES] KV is not configured. Set KV_REST_API_URL and KV_REST_API_TOKEN environment variables.");
+  console.warn(
+    "[PENDING CODES] KV is not configured. Set KV_REST_API_URL and KV_REST_API_TOKEN environment variables.",
+  );
 }
 
 /**
@@ -79,24 +83,20 @@ export async function storePendingCode(
 
   // Store with expiry (convert ms to seconds for KV TTL)
   const ttlSeconds = Math.ceil((pendingCode.expiresAt - now) / 1000);
-  
+
   try {
     await kv.setex(
       `${PENDING_CODE_KEY}${id}`,
       ttlSeconds,
-      JSON.stringify(pendingCode)
+      JSON.stringify(pendingCode),
     );
 
     // Also store mapping from code value to ID (with same TTL)
-    await kv.setex(
-      `${CODE_TO_ID_KEY}${code}`,
-      ttlSeconds,
-      id
-    );
+    await kv.setex(`${CODE_TO_ID_KEY}${code}`, ttlSeconds, id);
 
     // Add to set of all pending code IDs
     await kv.sadd("pending:ids", id);
-    
+
     // Extend TTL of the set
     await kv.expire("pending:ids", ttlSeconds);
   } catch (error) {
@@ -110,7 +110,9 @@ export async function storePendingCode(
 /**
  * Get a pending code by ID
  */
-export async function getPendingCode(id: string): Promise<PendingCode | undefined> {
+export async function getPendingCode(
+  id: string,
+): Promise<PendingCode | undefined> {
   try {
     const data = await kv.get(`${PENDING_CODE_KEY}${id}`);
     if (!data) return undefined;
@@ -133,7 +135,9 @@ export async function getPendingCode(id: string): Promise<PendingCode | undefine
 /**
  * Get a pending code by code value
  */
-export async function getPendingCodeByValue(code: string): Promise<PendingCode | undefined> {
+export async function getPendingCodeByValue(
+  code: string,
+): Promise<PendingCode | undefined> {
   try {
     const id = await kv.get(`${CODE_TO_ID_KEY}${code}`);
     if (!id) return undefined;
@@ -157,16 +161,16 @@ export async function updatePendingCode(
     if (!code) return undefined;
 
     const updated = { ...code, ...update };
-    
+
     // Calculate remaining TTL
     const now = Date.now();
     const remainingMs = Math.max(updated.expiresAt - now, 1000); // At least 1 second
     const ttlSeconds = Math.ceil(remainingMs / 1000);
-    
+
     await kv.setex(
       `${PENDING_CODE_KEY}${id}`,
       ttlSeconds,
-      JSON.stringify(updated)
+      JSON.stringify(updated),
     );
 
     return updated;
@@ -213,7 +217,7 @@ export async function getAllPendingCodes(): Promise<PendingCode[]> {
   if (!ids || ids.length === 0) return [];
 
   const codes: PendingCode[] = [];
-  
+
   for (const id of ids) {
     const code = await getPendingCode(id as string);
     if (code) {
@@ -230,10 +234,9 @@ export async function getAllPendingCodes(): Promise<PendingCode[]> {
 export async function getActivePendingCodes(): Promise<PendingCode[]> {
   const now = Date.now();
   const all = await getAllPendingCodes();
-  
+
   return all.filter(
-    (code) =>
-      code.status === "pending" && code.expiresAt >= now,
+    (code) => code.status === "pending" && code.expiresAt >= now,
   );
 }
 

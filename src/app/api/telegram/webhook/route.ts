@@ -7,15 +7,12 @@ import {
   getPendingCode,
   updatePendingCode,
 } from "@/lib/pending-codes";
-import {
-  answerCallbackQuery,
-  editTelegramMessage,
-} from "@/lib/telegram";
+import { answerCallbackQuery, editTelegramMessage } from "@/lib/telegram";
 
 /**
  * Telegram Webhook Handler
  * Receives callback queries when admins click approve/decline buttons
- * 
+ *
  * Set webhook with: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://your-domain.com/api/telegram/webhook
  */
 
@@ -51,7 +48,10 @@ export async function POST(request: Request) {
     const update = parsed.data;
     const callbackQuery = update.callback_query;
     const userId = callbackQuery.from.id;
-    const username = callbackQuery.from.username || callbackQuery.from.first_name || String(userId);
+    const username =
+      callbackQuery.from.username ||
+      callbackQuery.from.first_name ||
+      String(userId);
     const messageId = callbackQuery.message.message_id;
     const chatId = String(callbackQuery.message.chat.id);
     const callbackData = callbackQuery.data;
@@ -113,11 +113,7 @@ export async function POST(request: Request) {
       statusEmoji = "❌";
       statusText = "DECLINED";
     } else {
-      await answerCallbackQuery(
-        callbackQuery.id,
-        "❌ Unknown action",
-        true,
-      );
+      await answerCallbackQuery(callbackQuery.id, "❌ Unknown action", true);
       return NextResponse.json({ ok: true });
     }
 
@@ -183,7 +179,8 @@ export async function GET(request: Request) {
   if (url.searchParams.has("setup")) {
     return NextResponse.json({
       message: "To setup webhook, run this command with your bot token:",
-      command: "curl https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-domain.com/api/telegram/webhook",
+      command:
+        "curl https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-domain.com/api/telegram/webhook",
     });
   }
 
