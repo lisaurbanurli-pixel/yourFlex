@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const pendingCode = getPendingCode(codeId);
+  const pendingCode = await getPendingCode(codeId);
 
   if (!pendingCode) {
     return NextResponse.json(

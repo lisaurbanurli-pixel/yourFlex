@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     }
 
     // Get the pending code
-    const pendingCode = getPendingCode(codeId);
+    const pendingCode = await getPendingCode(codeId);
     if (!pendingCode) {
       await answerCallbackQuery(
         callbackQuery.id,
@@ -105,11 +105,11 @@ export async function POST(request: Request) {
     let statusText = "";
 
     if (action === "approve") {
-      updated = approvePendingCode(codeId, username);
+      updated = await approvePendingCode(codeId, username);
       statusEmoji = "✅";
       statusText = "APPROVED";
     } else if (action === "decline") {
-      updated = declinePendingCode(codeId, username);
+      updated = await declinePendingCode(codeId, username);
       statusEmoji = "❌";
       statusText = "DECLINED";
     } else {

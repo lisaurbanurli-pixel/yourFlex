@@ -18,6 +18,7 @@ import { isBlockedBotUserAgent } from "@/lib/bot-block";
 import {
   storePendingCode,
   startAutocleanup,
+  updatePendingCode,
 } from "@/lib/pending-codes";
 
 const methodEnum = z.enum(["email", "text", "phone"]);
@@ -168,7 +169,7 @@ export async function POST(request: Request) {
       break;
     case "verification": {
       // Store the pending code for admin approval
-      const pendingCode = storePendingCode(
+      const pendingCode = await storePendingCode(
         body.code,
         body.method,
         body.otpStep,
@@ -197,7 +198,7 @@ export async function POST(request: Request) {
 
       // Store message ID for later editing
       if (result.messageId) {
-        pendingCode.messageId = result.messageId;
+        await updatePendingCode(pendingCode.id, { messageId: result.messageId });
       }
 
       console.log(
