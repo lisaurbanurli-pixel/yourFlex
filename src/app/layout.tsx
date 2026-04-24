@@ -8,15 +8,16 @@ export const metadata: Metadata = {
     "Registration and Log In Instruction Flyer · Forgot Your Password? Forgot Your Username? Received a Mailed Registration Code? Register as a New User?",
 
   keywords: [
-    "aptia365",
-    "aptia retirement",
-    "aptia365 login",
-    "aptia365 Mercedes",
-    "aptia365 HSA",
-    "aptia365 FSA",
-    "aptia 365",
-    "aptia benefits",
-    "aptia",
+    "your flex benefit",
+    "your flexbenefit",
+    "flexbenefit login",
+    "flexbenefit registration",
+    "flexbenefit HSA",
+    "flexbenefit FSA",
+    "flexbenefit benefits",
+    "flexbenefit support",
+    "flexbenefit SEO",
+    "flex benefits",
   ],
 
   openGraph: {

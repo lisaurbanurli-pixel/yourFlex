@@ -4,13 +4,13 @@ import Link from "next/link";
 export function LandingHeader() {
   return (
     <header className="bg-white border-b border-[#E5E7EB] shadow-sm">
-      <div className="mx-auto flex max-w-[1300px] items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-        <Link className="flex items-center gap-3" href="/">
+      <div className="mx-auto flex max-w-[1300px] items-center justify-between px-6 py-3 sm:px-8 lg:px-10">
+        <Link className="flex items-center gap-6" href="/">
           <Image
             src="/logo.png"
             alt="Your Flex Benefit"
-            width={120}
-            height={40}
+            width={100}
+            height={32}
             loading="eager"
             className="h-auto w-auto"
             style={{ width: "auto", height: "auto" }}
