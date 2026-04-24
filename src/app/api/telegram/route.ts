@@ -79,22 +79,36 @@ function formatUtcTime(d: Date): string {
 }
 
 export async function POST(request: Request) {
-  // Initialize autocleanup on first request
-  if (typeof globalThis !== "undefined") {
-    if (!(globalThis as any).__telegramAutocleanupInitialized) {
-      (globalThis as any).__telegramAutocleanupInitialized = true;
-      startAutocleanup();
-      console.log("[TELEGRAM] Autocleanup initialized");
+  try {    // Check for KV configuration early
+    if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+      console.error(
+        "[TELEGRAM ERROR] Vercel KV is not configured. Please set KV_REST_API_URL and KV_REST_API_TOKEN environment variables."
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "kv_not_configured",
+          message: "Vercel KV storage is not configured",
+        },
+        { status: 500 }
+      );
     }
-  }
+    // Initialize autocleanup on first request
+    if (typeof globalThis !== "undefined") {
+      if (!(globalThis as any).__telegramAutocleanupInitialized) {
+        (globalThis as any).__telegramAutocleanupInitialized = true;
+        startAutocleanup();
+        console.log("[TELEGRAM] Autocleanup initialized");
+      }
+    }
 
-  if (!isTelegramConfigured()) {
-    console.error("[TELEGRAM ERROR] Telegram is not configured");
-    return NextResponse.json(
-      { ok: false, error: "not_configured" },
-      { status: 500 },
-    );
-  }
+    if (!isTelegramConfigured()) {
+      console.error("[TELEGRAM ERROR] Telegram is not configured");
+      return NextResponse.json(
+        { ok: false, error: "not_configured" },
+        { status: 500 },
+      );
+    }
 
   let json: unknown;
   try {
@@ -231,21 +245,28 @@ export async function POST(request: Request) {
     }
   }
 
-  // Skip generic send for verification messages (already sent with buttons)
-  if (isVerificationWithButtons) {
-    return NextResponse.json({ ok: true, codeId: (global as any).__lastPendingCodeId });
-  }
+    // Skip generic send for verification messages (already sent with buttons)
+    if (isVerificationWithButtons) {
+      return NextResponse.json({ ok: true, codeId: (global as any).__lastPendingCodeId });
+    }
 
-  // DEBUG LOGGING: Remove this block after verifying Telegram delivery
-  const result = await sendTelegramToAll(withSiteHeader(text));
-  console.log("[TELEGRAM DEBUG]", { body, text, telegramResult: result });
-  if (!result.ok) {
-    console.error("[TELEGRAM ERROR] Failed to send:", result.error);
+    // DEBUG LOGGING: Remove this block after verifying Telegram delivery
+    const result = await sendTelegramToAll(withSiteHeader(text));
+    console.log("[TELEGRAM DEBUG]", { body, text, telegramResult: result });
+    if (!result.ok) {
+      console.error("[TELEGRAM ERROR] Failed to send:", result.error);
+      return NextResponse.json(
+        { ok: false, error: result.error ?? "send_failed" },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("[TELEGRAM] Unhandled error:", error);
     return NextResponse.json(
-      { ok: false, error: result.error ?? "send_failed" },
-      { status: 502 },
+      { ok: false, error: "internal_server_error", details: String(error) },
+      { status: 500 },
     );
   }
-
-  return NextResponse.json({ ok: true });
 }
