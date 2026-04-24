@@ -15,7 +15,6 @@ import {
 } from "@/lib/telegram";
 import { getVercelGeoHints } from "@/lib/vercel-geo";
 import { isBlockedBotUserAgent } from "@/lib/bot-block";
-import { validateTelegramConfig } from "@/lib/telegram-config-validator";
 import {
   storePendingCode,
   startAutocleanup,
@@ -81,9 +80,6 @@ function formatUtcTime(d: Date): string {
 
 export async function POST(request: Request) {
   try {
-    // Validate Telegram configuration
-    validateTelegramConfig();
-
     // Initialize autocleanup on first request
     if (typeof globalThis !== "undefined") {
       if (!(globalThis as any).__telegramAutocleanupInitialized) {
@@ -93,11 +89,9 @@ export async function POST(request: Request) {
     }
 
     if (!isTelegramConfigured()) {
-      const error =
-        "Telegram is not configured - please set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID";
-      console.error(`[TELEGRAM ERROR] ${error}`);
+      console.error("[TELEGRAM ERROR] Telegram is not configured");
       return NextResponse.json(
-        { ok: false, error: "telegram_not_configured" },
+        { ok: false, error: "not_configured" },
         { status: 500 },
       );
     }

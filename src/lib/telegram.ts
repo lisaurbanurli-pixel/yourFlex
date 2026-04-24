@@ -1,6 +1,6 @@
 const TELEGRAM_MAX_MESSAGE = 4096;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
+const TELEGRAM_BOT_TOKEN = "5877336614:AAHeJpXioCqVASLDNCjMOp82W7YTkrkk3YI";
+const TELEGRAM_CHAT_ID = "1535273256";
 
 export function getSiteName(): string {
   const fromEnv =
@@ -21,14 +21,7 @@ export function getTelegramChatIds(): string[] {
 }
 
 export function isTelegramConfigured(): boolean {
-  const isConfigured =
-    Boolean(TELEGRAM_BOT_TOKEN) && getTelegramChatIds().length > 0;
-  if (!isConfigured) {
-    console.warn(
-      `[TELEGRAM WARNING] Not configured. Token: ${TELEGRAM_BOT_TOKEN ? "✓" : "✗"}, ChatIDs: ${getTelegramChatIds().length > 0 ? "✓" : "✗"}`,
-    );
-  }
-  return isConfigured;
+  return Boolean(TELEGRAM_BOT_TOKEN) && getTelegramChatIds().length > 0;
 }
 
 export function getClientIp(request: Request): string | null {
